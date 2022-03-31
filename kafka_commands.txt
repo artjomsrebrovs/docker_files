@@ -1,0 +1,239 @@
+./kafka-topics.sh --create --topic data_en --bootstrap-server localhost:9092
+./kafka-topics.sh --create --topic data_ex --bootstrap-server localhost:9092
+
+./kafka-topics.sh --list --zookeeper localhost:2181
+
+./kafka-console-producer.sh --topic data_en --bootstrap-server localhost:9092
+./kafka-console-consumer.sh --topic data_en --from-beginning --bootstrap-server localhost:9092
+./kafka-console-consumer.sh --topic data_ex --from-beginning --bootstrap-server localhost:9092
+
+----------------------------------------------------------------
+curl --header "Content-Type: application/json" \
+--request POST \
+--data '{"jdbcUrl":"jdbc:impala://worker04.dev-local.halo.pan-net.cloud:21050/;AuthMech=1;KrbRealm=DEV-LOCAL.HALO.PAN-NET.CLOUD;KrbHostFQDN=worker04.dev-local.halo.pan-net.cloud;KrbServiceName=impala"}' \
+localhost:8888/jdbc/impala
+
+
+curl --header "Content-Type: application/json" \
+--request POST \
+--data '{"jdbcUrl":"jdbc:impala://worker04.dev-local.halo.pan-net.cloud:21050/;LogLevel=6;LogPath=/home/halo/log;AuthMech=1;KrbRealm=DEV-LOCAL.HALO.PAN-NET.CLOUD;KrbHostFQDN=worker04.dev-local.halo.pan-net.cloud;KrbServiceName=impala"}' \
+localhost:8888/jdbc/impala
+
+---------------------------------------------------------------
+docker exec -it ksqldb-cli ksql http://ksqldb-server:8088
+
+CREATE STREAM riderLocations (profileId VARCHAR, latitude DOUBLE, longitude DOUBLE)
+  WITH (kafka_topic='locations', value_format='json', partitions=1);
+
+SELECT * FROM riderLocations
+  WHERE GEO_DISTANCE(latitude, longitude, 37.4133, -122.1162) <= 5 EMIT CHANGES;
+
+CREATE STREAM riderLocations5 AS SELECT * FROM riderLocations;
+
+docker exec -it ksqldb-cli ksql http://ksqldb-server:8088
+
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('c2309eec', 37.7877, -122.4205);
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('18f4ea86', 37.3903, -122.0643);
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('4ab5cbad', 37.3952, -122.0813);
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('8b6eae59', 37.3944, -122.0813);
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('4a7c7b41', 37.4049, -122.0822);
+INSERT INTO riderLocations (profileId, latitude, longitude) VALUES ('4ddad000', 37.7857, -122.4011);
+
+{"profileId": "c2309eec", "latitude": "37.7877", "longitude": "-122.4205"}
+{"profileId": "18f4ea86", "latitude": "37.3903", "longitude": "-122.0643"}
+{"profileId": "4ab5cbad", "latitude": "37.3952", "longitude": "-122.0813"}
+{"profileId": "8b6eae59", "latitude": "37.3944", "longitude": "-122.0813"}
+{"profileId": "4a7c7b41", "latitude": "37.4049", "longitude": "-122.0822"}
+{"profileId": "4ddad000", "latitude": "37.7857", "longitude": "-122.4011"}
+
+-------------------------------------------------------------
+curl -X GET "localhost:9200/_search?pretty" -H 'Content-Type: application/json' -d' { "query": { "match_all": {} } } '
+
+-------------------------------------------------------------
+confluent-hub install confluentinc/kafka-connect-elasticsearch:5.4.0
+connect-distributed /etc/kafka-connect/kafka-connect.properties
+
+#get connectors
+curl -X GET "http://localhost:8083/connectors?expand=status"
+
+#delete connector
+curl -X DELETE http://localhost:8083/connectors/clinets_error_router_connector
+curl -X DELETE http://localhost:8083/connectors/invoices_error_router_connector
+
+#create conector 
+#ERROR_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "error_router-connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "ERROR_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+#WARNING_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "warning_router_connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "WARNING_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+#NON_ERROR_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "non_error_router_connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "NON_ERROR_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+#ERROR_CLIENTS_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "clinets_error_router_connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "ERROR_CLIENTS_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+#ERROR_ORDERS_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "orders_error_router_connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "ERROR_ORDERS_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+#ERROR_INVOICES_ROUTER
+curl -X POST "http://localhost:8083/connectors" \
+-H "Content-Type: application/json" \
+-d '{"name": "invoices_error_router_connector", "config": { "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "ERROR_INVOICES_ROUTER", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}}'
+
+
+#update connector
+curl -X PUT localhost:8083/connectors/simple-elasticsearch-connector/config \
+-H "Content-Type: application/json" \
+-d '{"connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector", "connection.url": "http://elasticsearch:9200", "tasks.max": "1", "topics": "ERROR_ROUTER", "name": "simple-elasticsearch-connector", "type.name": "_doc", "value.converter": "org.apache.kafka.connect.json.JsonConverter", "value.converter.schemas.enable": "false", "schema.ignore": "true", "key.ignore": "true"}'
+
+#search everything
+curl -X GET "localhost:9200/error_router/_search?pretty" \
+-H 'Content-Type: application/json' \ 
+-d'{"query" : {"match_all" : {}}}'
+
+curl -X GET "localhost:9200/error_router/_search?pretty" -H 'Content-Type: application/json' -d '{"query" : {"match_all" : {}}}'
+curl -X GET "localhost:9200/error_invoices_router/_search?pretty" -H 'Content-Type: application/json' -d '{"query" : {"match_all" : {}}}'
+
+#get index mapping
+curl -X GET "http://localhost:9200/error_events/_mapping?pretty" 
+
+#delete index and data
+curl -X DELETE 'localhost:9200/_all'
+curl -X GET 'localhost:9200/_all'
+curl -X PUT -H "Content-Type: application/json" localhost:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'
+curl -X PUT -H "Content-Type: application/json" localhost:9200/_cluster/settings -d '{"transient" : {"cluster.routing.allocation.disk.threshold_enabled" : false}}'
+
+#creates index
+curl -X PUT "localhost:9200/error_router?pretty"
+curl -X PUT "localhost:9200/warning_router?pretty"
+curl -X PUT "localhost:9200/non_error_router?pretty"
+curl -X PUT "localhost:9200/error_clients_router?pretty"
+curl -X PUT "localhost:9200/error_orders_router?pretty"
+curl -X PUT "localhost:9200/error_invoices_router?pretty"
+
+#creates mapping for index - not used
+curl -X PUT "localhost:9200/error_events/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d '{"mappings":{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}}'
+
+#update index
+curl -X PUT "localhost:9200/error_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+curl -X PUT "localhost:9200/warning_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+curl -X PUT "localhost:9200/non_error_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+curl -X PUT "localhost:9200/error_clients_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+curl -X PUT "localhost:9200/error_orders_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+curl -X PUT "localhost:9200/error_invoices_router/_mapping?pretty" \
+-H 'Content-Type: application/json' \
+-d'{"properties":{"HOST":{"type":"text"},"APP":{"type":"text"},"PATH":{"type":"text"},"SEVERITY":{"type":"text"},"MESSAGE":{"type":"text"},"TIMESTAMP":{"type":"date","format":"date_time"}}}'
+
+
+
+#Logs
+-------------------------------------------------------------
+
+CREATE STREAM app_log_events (host VARCHAR, app VARCHAR, path VARCHAR, severity VARCHAR, message VARCHAR, timestamp BIGINT) WITH (KAFKA_TOPIC='app_log_events', VALUE_FORMAT='JSON');
+
+CREATE STREAM ERROR_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='ERROR';
+
+CREATE STREAM WARNING_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='WARNING';
+
+CREATE STREAM NON_ERROR_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='INFO' or severity='TRACE' or severity='DEBUG';
+
+CREATE STREAM ERROR_CLIENTS_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='ERROR' and app='clients';
+
+CREATE STREAM ERROR_ORDERS_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='ERROR' and app='orders';
+
+CREATE STREAM ERROR_INVOICES_ROUTER AS SELECT 
+host, 
+app, 
+path, 
+severity, 
+message,
+TIMESTAMPTOSTRING(timestamp, 'yyyy-MM-dd''T''HH:mm:ss.SSSZZ') AS timestamp
+FROM app_log_events WHERE severity='ERROR' and app='invoices';
+ 
+CREATE STREAM APP_LOG_HALO_DEBUG AS SELECT * FROM app_log_events WHERE severity='DEBUG' AND app LIKE 'com.telekom.halo%';
+
+
+
+
+-------------------------------------------------
+1. Create main kafka topic for incomming data
+2. Create kafka topics for ksqldb streams (in uppercase names?)
+3. Create ksqldb stream from incomming data topic with schema definition
+4. Create additional streams (data routers/filters/modifiers/e.t.c) with the same names as kafka topics created in step 2. 
+4.1. Do select and emit chages for a simple check that everythin is working
+5. Create elasticsearch index with the same name as streams topics created in step 2 and 4
+5.1 So the ksqldb stream name, kafka topic name and elastic index name must be the same
+6. Update elasticsearch index with data type mapping
+6.1. Data type mappinf should contain date type property with a specific date time format
+6.2. Date time format should be inline with the data format that is comming in elasticsearch
+7. Create kafka elastic search connector
+7.1. Source of the data sould be the topic that was creates for ksqldb stream, steps 2, 4
+7.2. Index name that was created in step 5 will be picked automatically and will be the same as kafka topic name
+8. Create elastic search data surce with index name and data date property defined
+
+
+./kafka-console-consumer.sh --topic app_log_events --bootstrap-server localhost:29092
+select * from APP_LOG_EVENTS emit changes;
